@@ -67,6 +67,7 @@ if (Meteor.isClient) {
 			var curr_img_pyr = new jsfeat.pyramid_t(3);
 			var prev_img_pyr = new jsfeat.pyramid_t(3);
 			var woker_img = new jsfeat.pyramid_t(3);
+			var last_ = [];
 			curr_img_pyr.allocate(640, 480, jsfeat.U8_t|jsfeat.C1_t);
 			prev_img_pyr.allocate(640, 480, jsfeat.U8_t|jsfeat.C1_t);
 			woker_img.allocate(640, 480, jsfeat.U8_t|jsfeat.C1_t);
@@ -154,7 +155,7 @@ if (Meteor.isClient) {
 					for(var i=0; i<good_cnt; i++)
 					{
 						var a = false, p;
-						for(var o=0; o<point_count; o++)
+						/*for(var o=0; o<point_count; o++)
 							if(pattern_xy[o].x == new_pattern_xy[i].x && pattern_xy[o].y == new_pattern_xy[i].y) {a = true;
 								if(Math.sqrt(Math.pow(curr_xy[o<<1]-t_xy[i<<1],2)+Math.pow(curr_xy[(o<<1)+1]-t_xy[(i<<1)+1],2)) > 5){
 									curr_xy[o<<1] = t_xy[i<<1];
@@ -163,8 +164,8 @@ if (Meteor.isClient) {
 									pattern_xy[o].x = new_pattern_xy[i].x;
 									pattern_xy[o].y = new_pattern_xy[i].y;
 									point_status[o] = t_point_status[i];
-								}}
-						if(!a && point_count<20)
+								}}*/
+						if(!a && point_count<50)
 						{
 							curr_xy[point_count<<1] = t_xy[i<<1];
 							curr_xy[(point_count<<1)+1] = t_xy[(i<<1)+1];
@@ -182,7 +183,7 @@ if (Meteor.isClient) {
 						}
 					}
 				}
-	
+				
  				prune_oflow_points(ctx_overlay);
 				
 				if(point_count > 4)
@@ -200,14 +201,34 @@ if (Meteor.isClient) {
 					mm_kernel.run(pattern_xy, pt, homo3x3, point_count);
 					var M = homo3x3.data;
 					var log2 = "";
-					var g = 0;
+					/*var g = 0;
 					for(var i=0; i<9; i++)
 					{
 						//log2+=Math.round(homo3x3.data[i] * 1000) / 1000 + "<br>";
 						log2+=Math.round(homo3x3.data[i] * 1000) / 1000 + " - " + (Math.abs((Math.round(homo3x3.data[i] * 1000) / 1000)-last_[i])/(Math.round(homo3x3.data[i] * 1000) / 1000)*100)   + "<br>";
 						if(i<6) g+=Math.abs(Math.abs((Math.round(homo3x3.data[i] * 1000) / 1000)-last_[i])/(Math.round(homo3x3.data[i] * 1000) / 1000)*100);
+					}*/
+					(function(){
+					var pt = [ {'x':0,'y':0}, {'x':w,'y':0}, {'x':w,'y':h}, {'x':0,'y':h} ];
+					var i=0, px=0.0, py=0.0;
+					var x=0,y=0,z=0;
+
+					for (; i < 4; ++i) {
+						x += M[0]*pt[i].x + M[1]*pt[i].y + M[2];
+						y += M[3]*pt[i].x + M[4]*pt[i].y + M[5];
+						z += M[6]*pt[i].x + M[7]*pt[i].y + M[8];
 					}
-					$("#log2").html(log2 + g/6);
+					
+					x/=4;
+					y/=4;
+					z/=4;
+					if(z<0.40) point_count=0;
+					log2 += "x: " + x + "<br>";
+					log2 += "y: " + y + "<br>";
+					log2 += "z: " + z + "<br>";
+					
+					$("#log2").html(log2);
+					})();
 					
 					var res = [], pt = [], h_dif = -1, h_dif_p = -1, list = [];
 					for(var i=0; i<pattern_xy.length; i++)
@@ -288,6 +309,7 @@ if (Meteor.isClient) {
 					}
 					//SetTransform(homo3x3);
 					render_shape(HtoP(homo3x3.data,320,240),0,255,0);
+					render_shape(HtoP(last_,320,240),0,0,255);
 				}//
 				
 			}, 32);
@@ -308,7 +330,6 @@ if (Meteor.isClient) {
 				worker.postMessage(data,[data.srcData.data.buffer]);
 			};
 			renderid = setInterval(render, render_interval);
-			var last_ = [];
 					
 			worker.onmessage = function(event){
 				//lastframe = event.data.frame;
@@ -332,7 +353,16 @@ if (Meteor.isClient) {
 				if(event.data.homo3x3) {
 					for(var i=0; i<9; i++)
 					{
-						last_[i] = Math.round(event.data.homo3x3.data[i]*1000)/1000;
+						//last_[i] = Math.round(event.data.homo3x3.data[i]*1000)/1000;
+						last_[i] = event.data.homo3x3.data[i];
+					}
+					var a = HtoP(homo3x3.data,320,240);
+					var b = HtoP(event.data.homo3x3.data,320,240);
+					for(var i=0; i<4; i++)
+					{
+						if(Math.sqrt(Math.pow(a[i].x - b[i].x,2)+Math.pow(a[i].y - b[i].y,2)) > 10){
+							point_count = 0;
+						}
 					}
 					
 					var t_xy = new Float32Array(100*2);
@@ -451,8 +481,10 @@ if (Meteor.isClient) {
 			};
 			
 			// homo3x3.data to point array
-			function HtoP(M,w,h)
+			function HtoP(M,w2,h2)
 			{
+				var w = img_preview.width;
+				var h = img_preview.height;
 				var pt = [ {'x':0,'y':0}, {'x':w,'y':0}, {'x':w,'y':h}, {'x':0,'y':h} ];
                 var z=0.0, i=0, px=0.0, py=0.0;
 
@@ -503,16 +535,16 @@ if (Meteor.isClient) {
 			img_preview.id = "img_preview";
 			img_preview.onload = function () {
 				var canvas1 = document.createElement('canvas');
-				canvas1.width = cam_w;
-				canvas1.height = cam_h;
+				canvas1.width = img_preview.width;
+				canvas1.height = img_preview.height;
 				var context1 = canvas1.getContext('2d');
 				context1.drawImage(img_preview, 0, 0);
-				var imageData2 = context1.getImageData(0, 0, cam_w, cam_h);
+				var imageData2 = context1.getImageData(0, 0, img_preview.width, img_preview.height);
 				var data = {imageData:imageData2,input: 1};
 				worker.postMessage(data);
 			};
-			img_preview.style.width = cam_w+"px";
-			img_preview.style.height = cam_h+"px";
+			//img_preview.style.width = cam_w+"px";
+			//img_preview.style.height = cam_h+"px";
 			img_preview.src = "SCAN1.jpg";
 	});
 }
